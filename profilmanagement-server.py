@@ -75,7 +75,7 @@ class Store:
         for path in self.p.glob('*.json'):
             profile=self.get(path.stem); person=profile.get('person',{})
             result.append({'id':profile['id'],'name':' '.join(filter(None,[person.get('vorname',''),person.get('nachname','')])), 'rolle':person.get('rolle',''),'status':profile.get('status','Entwurf'),'aktualisiertAm':profile.get('aktualisiertAm',''),'variantenAnzahl':len(list(self.vf(profile['id']).glob('*.json'))),'hinweise':self.hints(profile)})
-        return sorted(result,key=lambda value:value['name'].casefold())
+        return sorted(result, key=lambda value: tuple(reversed(value['name'].casefold().split(maxsplit=1))))
     def create(self, data, actor):
         source=data.get('person',{}); first=str(source.get('vorname','')).strip(); last=str(source.get('nachname','')).strip()
         if not first or not last: raise ValueError('Vorname und Nachname sind erforderlich.')
