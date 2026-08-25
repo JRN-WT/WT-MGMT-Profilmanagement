@@ -1,30 +1,56 @@
-/* Ergänzungen für die Variantenansicht: rechte Vorschau und PDF-Export. */
+/* Rechte, rein browserbasierte Variantenvorschau. Keine Zusatzbibliothek. */
 (() => {
-  const css=`
-  .variant-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(330px,430px);gap:18px;align-items:start}.variant-editor{min-width:0}.preview-panel{position:sticky;top:18px}.preview{margin:0;border:1px solid var(--l);border-radius:8px;overflow:hidden;background:#fff}.preview-person{padding:18px 20px;background:var(--n);color:#fff;border-bottom:3px solid var(--o)}.preview-person h2{font-size:22px;margin:0 0 5px}.preview-person .role,.preview-contact{color:#dce7f3;line-height:1.5}.preview-contact{font-size:12px;margin-top:8px}.preview-head{padding:16px;background:#f7f2e8;border-bottom:1px solid var(--l)}.preview-head h2{margin:0 0 4px}.preview-body{padding:20px}.preview-section{padding:13px 0;border-bottom:1px solid #e7e1d6}.preview-section:last-child{border-bottom:0}.preview-section h3{margin:0 0 8px}.preview-project{padding:12px 0;border-top:1px solid #ece6db}.preview-project:first-of-type{border-top:0}.preview-project b{color:var(--n)}.preview-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;padding:12px 16px;background:#f7f2e8;border-top:1px solid var(--l)}@media(max-width:980px){.variant-layout{grid-template-columns:1fr}.preview-panel{position:static}}`;
-  document.head.insertAdjacentHTML('beforeend',`<style>${css}</style>`);
-  const contact=p=>[p.standort,p.interneEmail,p.telefon].filter(Boolean).map(e).join(' · ');
-  const rows=key=>{const selected=Object.fromEntries((sel()[key]||[]).filter(x=>x.sichtbar).map(x=>[x.id,x]));return(profile[key]||[]).filter(x=>selected[x.id]).sort((a,b)=>selected[a.id].reihenfolge-selected[b.id].reihenfolge)};
-  window.showPreview=function(){
-    const person=profile.person||{}, name=q('#vn').value.trim()||'Unbenannte Variante', role=q('#vr').value.trim()||person.rolle||'Rolle noch ergänzen', kp=profile.kurzprofil||{}, parts=[];
-    if(kp.positionierung||kp.zusammenfassung) parts.push(`<section class="preview-section"><h3>Kurzprofil</h3><b>${e(kp.positionierung||'')}</b><p>${e(kp.zusammenfassung||'')}</p></section>`);
-    for(const key of ['kompetenzen','branchen','qualifikationen','sprachen']){const items=rows(key);if(items.length)parts.push(`<section class="preview-section"><h3>${labels[key]}</h3><div>${items.map(x=>e(key==='sprachen'?x.sprache+(x.niveau?' · '+x.niveau:''):x.bezeichnung)).join(' · ')}</div></section>`)}
-    const projects=rows('projekte');if(projects.length)parts.push(`<section class="preview-section"><h3>Projekterfahrung</h3>${projects.map(p=>`<div class="preview-project"><b>${e(p.titel)}</b><div class="meta">${e([mon(p.startMonat),p.laufend?'laufend':mon(p.endeMonat),p.rolle].filter(Boolean).join(' · '))}</div><p>${e(p.beschreibung)}</p><p><b>Tätigkeiten:</b> ${e(p.aufgaben)}</p></div>`).join('')}</section>`);
-    q('#variant-preview').innerHTML=`<section class="preview"><div class="preview-person"><h2>${e((person.vorname||'')+' '+(person.nachname||''))}</h2><div class="role">${e(role)}</div>${contact(person)?`<div class="preview-contact">${contact(person)}</div>`:''}</div><div class="preview-head"><h2>Vorschau: ${e(name)}</h2><div class="muted">Aktuell eingeschaltete Inhalte in der gewählten Reihenfolge.</div></div><div class="preview-body">${parts.join('')||'<p class="muted">Für diese Variante sind noch keine Inhalte eingeschaltet.</p>'}</div><div class="preview-actions"><button class="button secondary" onclick="showPreview()">Vorschau aktualisieren</button><button class="button" onclick="downloadPdf()">PDF erstellen</button></div></section>`;
-  };
-  window.downloadPdf=async function(){
-    try{await savevar(0,true);const response=await fetch('/api/profiles/'+profile.id+'/variants/'+variant.id+'/pdf',{headers:{'X-WT-Actor':actor}});if(!response.ok){const err=await response.json();throw Error(err.fehler)}const blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=(q('#vn').value.trim()||'profilvariante')+'.pdf';link.click();URL.revokeObjectURL(url);say('PDF erstellt und heruntergeladen.')}catch(error){say(error.message)}
-  };
-  const previousVariants=window.variants;
-  window.variants=async function(edit=false){
-    await previousVariants(edit);
-    if(!edit||!variant)return;
-    const host=q('#variants'), oldPreview=q('#variant-preview');
-    if(!oldPreview||host.querySelector('.variant-layout'))return;
-    const save=host.querySelector('.savebar'), sections=[...host.querySelectorAll('.section')];
-    const first=sections.shift(); const editor=document.createElement('div');editor.className='variant-editor';
-    if(first)editor.append(first);sections.forEach(x=>editor.append(x));if(save)editor.append(save);
-    const layout=document.createElement('div');layout.className='variant-layout';layout.append(editor);
-    const aside=document.createElement('aside');aside.className='preview-panel';aside.append(oldPreview);layout.append(aside);host.append(layout);showPreview();
+  const css = `
+  .variant-workspace{display:block}.variant-editor{min-width:0}.preview-panel{display:none}.variant-workspace.preview-open{display:grid;grid-template-columns:minmax(0,1fr) minmax(350px,420px);gap:20px;align-items:start}.variant-workspace.preview-open .preview-panel{display:block;position:sticky;top:18px}.preview{margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}.preview-person{padding:18px 20px;background:var(--blue);color:#fff;border-bottom:3px solid var(--orange)}.preview-person h2{font-size:22px;margin:0 0 5px}.preview-role,.preview-contact{color:#dce7f3;line-height:1.45}.preview-contact{font-size:12px;margin-top:8px}.preview-head{padding:16px;background:#f7f2e8;border-bottom:1px solid var(--line)}.preview-head h2{margin:0 0 4px}.preview-body{padding:20px}.preview-section{padding:13px 0;border-bottom:1px solid #e7e1d6}.preview-section:last-child{border-bottom:0}.preview-section h3{margin:0 0 8px}.preview-project{padding:12px 0;border-top:1px solid #ece6db}.preview-project:first-of-type{border-top:0}.preview-project b{color:var(--blue)}.preview-note{font-size:12px;color:var(--muted);line-height:1.45;margin-top:10px}@media(max-width:1050px){.variant-workspace.preview-open{grid-template-columns:1fr}.variant-workspace.preview-open .preview-panel{position:static}}`;
+  document.head.insertAdjacentHTML('beforeend', `<style>${css}</style>`);
+
+  function selectedRows(key) {
+    const map = Object.fromEntries((selection()[key] || []).filter(item => item.sichtbar).map(item => [item.id, item]));
+    return (profile[key] || []).filter(item => map[item.id]).sort((a, b) => map[a.id].reihenfolge - map[b.id].reihenfolge);
+  }
+  function contacts(person) {
+    return [person.standort, person.interneEmail, person.telefon].filter(Boolean).map(e).join(' · ');
+  }
+  function ensureRightPanel() {
+    let panel = q('#variant-preview-panel');
+    if (panel) return panel;
+    const preview = q('#variant-preview');
+    const host = q('#variants');
+    const start = host.querySelector('.section');
+    const end = host.querySelector('.save-bar');
+    if (!preview || !start || !end) throw Error('Die Variantenansicht ist noch nicht vollständig aufgebaut. Bitte die Variante einmal neu öffnen.');
+    const workspace = document.createElement('div');
+    workspace.id = 'variant-workspace'; workspace.className = 'variant-workspace';
+    const editor = document.createElement('div'); editor.className = 'variant-editor';
+    const panelElement = document.createElement('aside'); panelElement.id = 'variant-preview-panel'; panelElement.className = 'preview-panel';
+    start.parentElement.insertBefore(workspace, start);
+    let node = start;
+    while (node) {
+      const next = node.nextElementSibling;
+      editor.append(node);
+      if (node === end) break;
+      node = next;
+    }
+    panelElement.append(preview); workspace.append(editor, panelElement);
+    return panelElement;
+  }
+  window.showPreview = function () {
+    try {
+      const panel = ensureRightPanel();
+      const workspace = q('#variant-workspace'); workspace.classList.add('preview-open');
+      const person = profile.person || {};
+      const name = q('#vn').value.trim() || 'Unbenannte Variante';
+      const role = q('#vr').value.trim() || person.rolle || 'Rolle noch ergänzen';
+      const short = profile.kurzprofil || {}, sections = [];
+      if (short.positionierung || short.zusammenfassung) sections.push(`<section class="preview-section"><h3>Kurzprofil</h3><b>${e(short.positionierung || '')}</b><p>${e(short.zusammenfassung || '')}</p></section>`);
+      for (const key of ['kompetenzen', 'branchen', 'qualifikationen', 'sprachen']) {
+        const rows = selectedRows(key);
+        if (rows.length) sections.push(`<section class="preview-section"><h3>${labels[key]}</h3><div>${rows.map(row => e(key === 'sprachen' ? row.sprache + (row.niveau ? ' · ' + row.niveau : '') : row.bezeichnung)).join(' · ')}</div></section>`);
+      }
+      const projects = selectedRows('projekte');
+      if (projects.length) sections.push(`<section class="preview-section"><h3>Projekterfahrung</h3>${projects.map(project => `<div class="preview-project"><b>${e(project.titel)}</b><div class="meta">${e([month(project.startMonat), project.laufend ? 'laufend' : month(project.endeMonat), project.rolle].filter(Boolean).join(' · '))}</div><p>${e(project.beschreibung)}</p><p><b>Tätigkeiten:</b> ${e(project.aufgaben)}</p></div>`).join('')}</section>`);
+      q('#variant-preview').innerHTML = `<section class="preview"><div class="preview-person"><h2>${e([person.vorname, person.nachname].filter(Boolean).join(' ') || 'Name noch ergänzen')}</h2><div class="preview-role">${e(role)}</div>${contacts(person) ? `<div class="preview-contact">${contacts(person)}</div>` : ''}</div><div class="preview-head"><h2>Vorschau: ${e(name)}</h2><div class="muted">Alle aktivierten Inhalte in der gewählten Reihenfolge.</div><div class="preview-note">Diese Ansicht ist die Grundlage für den PDF-Export.</div></div><div class="preview-body">${sections.join('') || '<p class="muted">Für diese Variante sind noch keine Inhalte eingeschaltet.</p>'}</div></section>`;
+      panel.scrollIntoView({behavior:'smooth', block:'start'});
+    } catch (error) { say(error.message); }
   };
 })();
