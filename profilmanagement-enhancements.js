@@ -1,7 +1,7 @@
 /* Rechte, rein browserbasierte Variantenvorschau. Keine Zusatzbibliothek. */
 (() => {
   const css = `
-  .variant-workspace{display:block}.variant-editor{min-width:0}.preview-panel{display:none}.variant-workspace.preview-open{display:grid;grid-template-columns:minmax(0,1fr) minmax(350px,420px);gap:20px;align-items:start}.variant-workspace.preview-open .preview-panel{display:block;position:sticky;top:18px}.preview{margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}.preview-person{padding:18px 20px;background:var(--blue);color:#fff;border-bottom:3px solid var(--orange)}.preview-person h2{font-size:22px;margin:0 0 5px}.preview-role,.preview-contact{color:#dce7f3;line-height:1.45}.preview-contact{font-size:12px;margin-top:8px}.preview-head{padding:16px;background:#f7f2e8;border-bottom:1px solid var(--line)}.preview-head h2{margin:0 0 4px}.preview-body{padding:20px}.preview-section{padding:13px 0;border-bottom:1px solid #e7e1d6}.preview-section:last-child{border-bottom:0}.preview-section h3{margin:0 0 8px}.preview-project{padding:12px 0;border-top:1px solid #ece6db}.preview-project:first-of-type{border-top:0}.preview-project b{color:var(--blue)}.preview-note{font-size:12px;color:var(--muted);line-height:1.45;margin-top:10px}.save-bar .button.secondary[onclick*="showPreview"]{display:none!important}@media(max-width:1050px){.variant-workspace.preview-open{grid-template-columns:1fr}.variant-workspace.preview-open .preview-panel{position:static}}`;
+  .variant-workspace{display:block}.variant-editor{min-width:0}.preview-panel{display:none}.variant-workspace.preview-open{display:grid;grid-template-columns:minmax(0,1fr) minmax(350px,420px);gap:20px;align-items:start}.variant-workspace.preview-open .preview-panel{display:block;position:sticky;top:18px}.preview{margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}.preview-person{padding:18px 20px;background:var(--blue);color:#fff;border-bottom:3px solid var(--orange)}.preview-person h2{font-size:22px;margin:0 0 5px}.preview-role,.preview-contact{color:#dce7f3;line-height:1.45}.preview-contact{font-size:12px;margin-top:8px}.preview-head{padding:16px;background:#f7f2e8;border-bottom:1px solid var(--line)}.preview-head h2{margin:0 0 4px}.preview-body{padding:20px}.preview-section{padding:13px 0;border-bottom:1px solid #e7e1d6}.preview-section:last-child{border-bottom:0}.preview-section h3{margin:0 0 8px}.preview-project{padding:12px 0;border-top:1px solid #ece6db}.preview-project:first-of-type{border-top:0}.preview-project b{color:var(--blue)}.preview-note{font-size:12px;color:var(--muted);line-height:1.45;margin-top:10px}.save-bar .button.secondary[onclick*="showPreview"]{display:none!important}.section>h3{font-family:Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:.03em;color:var(--blue)}.profile-index{display:flex;flex-wrap:wrap;gap:5px;padding:12px 18px;border-bottom:1px solid var(--line);background:#f7f2e8}.profile-index button{min-width:26px;height:27px;padding:0 6px;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--blue);font-size:12px;font-weight:700;cursor:pointer}.profile-index button:hover,.profile-index button.active{background:#fff;color:var(--orange);border-color:var(--line)}.profile-index button:disabled{color:#aeb8c4;cursor:default}.profile-index button:disabled:hover{background:transparent;border-color:transparent;color:#aeb8c4}@media(max-width:1050px){.variant-workspace.preview-open{grid-template-columns:1fr}.variant-workspace.preview-open .preview-panel{position:static}}`;
   document.head.insertAdjacentHTML('beforeend', `<style>${css}</style>`);
 
   function selectedRows(key) {
@@ -74,4 +74,49 @@
     await originalNewVariant();
     activatePreview();
   };
+
+  // Alphabetische Filterung der Profilakten nach Nachname.
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  let activeLetter = 'Alle';
+  const surnameLetter = button => {
+    const name = button.querySelector('.name')?.textContent.trim() || '';
+    const surname = name.split(/\s+/).pop() || '';
+    return surname.normalize('NFD').replace(/[\u0300-\u036f]/g, '').charAt(0).toUpperCase();
+  };
+  const applyProfileFilter = letter => {
+    activeLetter = letter;
+    const rows = qa('#profiles .profile');
+    rows.forEach(row => row.hidden = letter !== 'Alle' && surnameLetter(row) !== letter);
+    qa('.profile-index button').forEach(button => button.classList.toggle('active', button.dataset.letter === letter));
+    const total = rows.length;
+    const visible = rows.filter(row => !row.hidden).length;
+    const footer = q('#footer');
+    if (footer) footer.textContent = letter === 'Alle' ? `${total} Profilakte${total === 1 ? '' : 'n'}` : `${visible} von ${total} Profilakte${total === 1 ? '' : 'n'}`;
+  };
+  const renderProfileIndex = () => {
+    const profiles = q('#profiles');
+    if (!profiles || q('#profile-index')) return;
+    const card = profiles.parentElement;
+    const rows = qa('.profile', profiles);
+    if (!rows.length) return;
+    const available = new Set(rows.map(surnameLetter));
+    const index = document.createElement('nav');
+    index.id = 'profile-index';
+    index.className = 'profile-index';
+    index.setAttribute('aria-label', 'Profile nach Nachname filtern');
+    index.innerHTML = `<button type="button" class="active" data-letter="Alle">Alle</button>${alphabet.map(letter => `<button type="button" data-letter="${letter}" ${available.has(letter) ? '' : 'disabled'}>${letter}</button>`).join('')}`;
+    index.addEventListener('click', event => {
+      const button = event.target.closest('button[data-letter]');
+      if (button && !button.disabled) applyProfileFilter(button.dataset.letter);
+    });
+    card.insertBefore(index, profiles);
+  };
+  new MutationObserver(() => {
+    if (q('#profile-index')) {
+      applyProfileFilter(activeLetter);
+    } else {
+      renderProfileIndex();
+    }
+  }).observe(q('#profiles'), { childList: true });
+  renderProfileIndex();
 })();
