@@ -60,7 +60,7 @@ class Store:
         return result
     def content(self, profile): return {key: cp(profile.get(key, {} if key=='kurzprofil' else [])) for key in FIELDS}
     def hints(self, profile):
-        result=[]; person=profile.get('person', {})
+        result=[]; person=profile.get('person',{})
         if not person.get('vorname') or not person.get('nachname'): result.append('Name unvollständig')
         for key, label in (('kurzprofil','Kurzprofil'),('kompetenzen','Kompetenzen'),('projekte','Projekterfahrung'),('qualifikationen','Qualifikationen'),('sprachen','Sprachen')):
             if not profile.get(key): result.append(label+' noch leer')
@@ -221,14 +221,14 @@ class Handler(SimpleHTTPRequestHandler):
                         # Exportiert genau die aktive Vorschau, ohne Variante oder Status zu speichern.
                         variant['inhalte']=store.content(profile)
                         store.normvar(variant)
-                    name=safe(f"{datetime.now().strftime('%Y-%m-%d')}_WT-Profil_{variant.get('name') or 'profilvariante'}.pdf")
-                    output=store.d/safe(pid)/name
+                    filename=safe(f"{datetime.now().strftime('%Y-%m-%d')}_WT-Profil_{profile.get('person', {}).get('vorname', '')}_{profile.get('person', {}).get('nachname', '')}.pdf")
+                    output=store.d/safe(pid)/filename
                     logo_path=next((candidate for candidate in (ROOT/'logo_werktrifft.png', ROOT/'assets'/'logo_werktrifft.png', ROOT.parent/'WT-Dashboard-Module'/'logo_werktrifft.png') if candidate.exists()), None)
                     try:
                         export_pdf(profile,variant,output,logo_path=logo_path)
                     except PDFExportUnavailable as error:
                         raise ValueError(str(error)) from error
-                    return self.sendfile(output,name)
+                    return self.sendfile(output,filename)
                 if len(parts)==6 and parts[3]=='variants' and parts[5]=='basis-aenderungen':
                     if self.command=='GET': return self.sendjson(200,store.changes(pid,parts[4]))
                     if self.command=='POST': return self.sendjson(200,store.review(pid,parts[4],actor))
