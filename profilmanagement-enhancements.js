@@ -50,7 +50,21 @@
       const projects = selectedRows('projekte');
       if (projects.length) sections.push(`<section class="preview-section"><h3>Projekterfahrung</h3>${projects.map(project => `<div class="preview-project"><b>${e(project.titel)}</b><div class="meta">${e([month(project.startMonat), project.laufend ? 'laufend' : month(project.endeMonat), project.rolle].filter(Boolean).join(' · '))}</div><p>${e(project.beschreibung)}</p><p><b>Tätigkeiten:</b> ${e(project.aufgaben)}</p></div>`).join('')}</section>`);
       q('#variant-preview').innerHTML = `<section class="preview"><div class="preview-person"><h2>${e([person.vorname, person.nachname].filter(Boolean).join(' ') || 'Name noch ergänzen')}</h2><div class="preview-role">${e(role)}</div>${contacts(person) ? `<div class="preview-contact">${contacts(person)}</div>` : ''}</div><div class="preview-head"><h2>Vorschau: ${e(name)}</h2><div class="muted">Alle aktivierten Inhalte in der gewählten Reihenfolge.</div><div class="preview-note">Diese Ansicht ist die Grundlage für den PDF-Export.</div></div><div class="preview-body">${sections.join('') || '<p class="muted">Für diese Variante sind noch keine Inhalte eingeschaltet.</p>'}</div></section>`;
-      panel.scrollIntoView({behavior:'smooth', block:'start'});
     } catch (error) { say(error.message); }
+  };
+
+  // Die Vorschau ist in der Variantenbearbeitung ein fester Arbeitsbereich.
+  // Nach jedem Aufbau wird sie sofort gerendert und der frühere Aktionsbutton entfernt.
+  const originalVariants = window.variants;
+  window.variants = async function (edit = false) {
+    const result = await originalVariants(edit);
+    if (edit && window.variant) {
+      requestAnimationFrame(() => {
+        const previewButton = q('.save-bar .button.secondary[onclick*="showPreview"]');
+        if (previewButton) previewButton.remove();
+        window.showPreview();
+      });
+    }
+    return result;
   };
 })();
