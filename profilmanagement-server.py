@@ -46,6 +46,7 @@ class Store:
     def write(self, path, data):
         path.parent.mkdir(parents=True, exist_ok=True); temp = path.with_suffix(path.suffix+'.tmp'); temp.write_text(json.dumps(data, ensure_ascii=False, indent=2)+'\n', encoding='utf-8'); temp.replace(path)
     def pp(self, pid): return self.p/f'{safe(pid)}.json'
+    def photo_path(self, pid): return self.p/f'{safe(pid)}.photo.jpg'
     def vf(self, pid, create=True):
         path = self.v/safe(pid)
         if create: path.mkdir(parents=True, exist_ok=True)
@@ -68,9 +69,7 @@ class Store:
     def get(self, pid):
         path=self.pp(pid)
         if not path.exists(): raise FileNotFoundError('Profil nicht gefunden')
-        profile=self.read(path); profile.setdefault('revision',1)
-        for key in LISTS: profile[key]=self.normalize(key,profile.get(key,[]))
-        profile['hinweise']=self.hints(profile); return profile
+        return self.read(path)
     def list(self):
         result=[]
         for path in self.p.glob('*.json'):
@@ -104,6 +103,7 @@ class Store:
         for key in LISTS:
             existing={entry.get('id'):entry for entry in variant['auswahl'].get(key,[]) if entry.get('id')}
             variant['auswahl'][key]=[{'id':entry['id'],'sichtbar':bool(existing.get(entry['id'],{}).get('sichtbar',True)),'reihenfolge':existing.get(entry['id'],{}).get('reihenfolge',index+1)} for index,entry in enumerate(variant['inhalte'][key])]
+        variant.setdefault('fotoSichtbar',False)
         variant.setdefault('basisRevisionGeprueft',1); variant.setdefault('basisRevisionAktuell',variant['basisRevisionGeprueft']); variant.setdefault('pruefungErforderlich',False)
     def mark(self,pid,revision,timestamp,actor):
         profile=self.get(pid); content=self.content(profile)
@@ -121,10 +121,8 @@ class Store:
             if key in data: profile[key]=data[key]
         for key in LISTS: profile[key]=self.normalize(key,profile.get(key,[]))
         profile['projekte']=[item for item in profile['projekte'] if any((item['titel'].strip(),item['startMonat'],item['endeMonat'],item['laufend'],item['rolle'].strip(),item['beschreibung'].strip(),item['aufgaben'].strip()))]
-        self.validate_projects(profile['projekte'])
-        if profile.get('status') not in ('Entwurf','Aktuell'): raise ValueError('Ungültiger Profilstatus.')
-        changed=before!=self.content(profile); timestamp=now(); profile['aktualisiertAm']=timestamp; profile['aktualisiertVon']=actor; profile['revision']=int(profile.get('revision',1))+(1 if changed else 0); profile.setdefault('historie',[]).append({'zeitpunkt':timestamp,'aktion':'Basisprofil gespeichert','von':actor,'details':'Profilinhalte aktualisiert.' if changed else 'Stammdaten gespeichert; Profilinhalte unverändert.'}); self.write(self.pp(pid),profile)
-        if changed: self.mark(pid,profile['revision'],timestamp,actor)
+        self.validate_projects(profile['projekte']); timestamp=now(); profile['revision']=int(profile.get('revision',0))+1; profile['aktualisiertAm']=timestamp; profile['aktualisiertVon']=actor; profile.setdefault('historie',[]).append({'zeitpunkt':timestamp,'aktion':'Basisprofil aktualisiert','von':actor,'details':'Profildaten geändert.'}); self.write(self.pp(pid),profile)
+        if before!=self.content(profile): self.mark(pid,profile['revision'],timestamp,actor)
         return self.get(pid)
     def variants(self,pid): self.get(pid); return sorted((self.read(path) for path in self.vf(pid).glob('*.json')),key=lambda value:value.get('aktualisiertAm',''),reverse=True)
     def variant(self,pid,vid):
@@ -143,11 +141,9 @@ class Store:
         self.normvar(variant); desired=data.get('status')
         if desired=='Freigegeben' and variant.get('pruefungErforderlich'): raise ValueError('Bitte zuerst die Basisprofil-Änderungen prüfen, bevor Sie diese Variante freigeben.')
         if desired in ('Entwurf','Freigegeben'): variant['status']=desired
-        elif variant.get('pruefungErforderlich'): variant['status']='Prüfung erforderlich'
-        timestamp=now(); variant['aktualisiertAm']=timestamp; variant['aktualisiertVon']=actor
-        variant.setdefault('historie',[]).append({'zeitpunkt':timestamp,'aktion':'Variante freigegeben' if variant['status']=='Freigegeben' else 'Variante gespeichert','von':actor,'details':'Kontext, Auswahl und Reihenfolge gespeichert.'}); self.write(self.vp(pid,vid),variant); return variant
+        timestamp=now(); variant['aktualisiertAm']=timestamp; variant['aktualisiertVon']=actor; variant.setdefault('historie',[]).append({'zeitpunkt':timestamp,'aktion':'Variante aktualisiert','von':actor,'details':'Varianteninhalte oder Kontext geändert.'}); self.write(self.vp(pid,vid),variant); return variant
     def changes(self,pid,vid):
-        profile=self.get(pid); variant=self.variant(pid,vid); old=variant.get('basisSnapshot',{}); changes=[]
+        profile=self.get(pid); variant=self.variant(pid,vid); old=variant.get('basisSnapshot',{}) if isinstance(variant.get('basisSnapshot'),dict) else {}; changes=[]
         if old.get('kurzprofil',{})!=profile.get('kurzprofil',{}): changes.append({'feld':'kurzprofil','typ':'geaendert','titel':'Kurzprofil'})
         for key in LISTS:
             before={entry.get('id'):entry for entry in old.get(key,[]) if entry.get('id')}; current={entry.get('id'):entry for entry in profile.get(key,[]) if entry.get('id')}
@@ -161,8 +157,28 @@ class Store:
         if variant.get('status')=='Prüfung erforderlich': variant['status']=variant.pop('statusVorBasisAenderung','Entwurf')
         self.normvar(variant); timestamp=now(); variant['aktualisiertAm']=timestamp; variant['aktualisiertVon']=actor
         variant.setdefault('historie',[]).append({'zeitpunkt':timestamp,'aktion':'Basisänderungen geprüft','von':actor,'details':'Basisprofil-Änderungen bestätigt.'}); self.write(self.vp(pid,vid),variant); return variant
+    def save_photo(self, pid, data_url, actor):
+        profile=self.get(pid)
+        match=re.fullmatch(r'data:image/jpeg;base64,([A-Za-z0-9+/=]+)', str(data_url or ''))
+        if not match: raise ValueError('Bitte einen gültigen zugeschnittenen JPG-Bildausschnitt senden.')
+        import base64
+        try: image=base64.b64decode(match.group(1), validate=True)
+        except ValueError as error: raise ValueError('Das Bild konnte nicht verarbeitet werden.') from error
+        if len(image)>900_000: raise ValueError('Das zugeschnittene Foto ist zu groß.')
+        if not image.startswith(b'\xff\xd8') or not image.rstrip().endswith(b'\xff\xd9'): raise ValueError('Das Foto muss ein JPG-Bild sein.')
+        self.photo_path(pid).write_bytes(image)
+        timestamp=now(); profile.setdefault('person', {})['foto']={'url':f'/api/profiles/{pid}/photo','aktualisiertAm':timestamp}
+        profile['aktualisiertAm']=timestamp; profile['aktualisiertVon']=actor
+        profile.setdefault('historie',[]).append({'zeitpunkt':timestamp,'aktion':'Profilfoto aktualisiert','von':actor,'details':'Quadratischer Bildausschnitt gespeichert.'})
+        self.write(self.pp(pid),profile); return self.get(pid)
+    def remove_photo(self, pid, actor):
+        profile=self.get(pid); self.photo_path(pid).unlink(missing_ok=True)
+        timestamp=now(); profile.setdefault('person', {})['foto']=None; profile['aktualisiertAm']=timestamp; profile['aktualisiertVon']=actor
+        profile.setdefault('historie',[]).append({'zeitpunkt':timestamp,'aktion':'Profilfoto entfernt','von':actor,'details':'Foto aus dem Basisprofil entfernt.'})
+        self.write(self.pp(pid),profile); return self.get(pid)
     def archive(self,pid,actor):
         profile=self.get(pid); target=self.a/f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{safe(pid)}"; target.mkdir(); shutil.move(str(self.pp(pid)),str(target/'profil.json'))
+        if self.photo_path(pid).exists(): shutil.move(str(self.photo_path(pid)), str(target/'profilfoto.jpg'))
         for source,name in ((self.vf(pid,False),'varianten'),(self.d/safe(pid),'dokumente')):
             if source.exists(): shutil.move(str(source),str(target/name))
         self.write(target/'archiv-info.json',{'profilId':profile['id'],'archiviertAm':now(),'archiviertVon':actor,'grund':'Archivierung über Profilmanagement'})
@@ -175,7 +191,7 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path.split('?',1)[0].endswith('profilmanagement.html'):
             page=(ROOT/'profilmanagement.html').read_text(encoding='utf-8')
             if 'profilmanagement-enhancements.js' not in page:
-                page=page.replace('</body>','<script src="profilmanagement-enhancements.js"></script></body>')
+                page=page.replace('</body>','<script src="profilmanagement-enhancements.js"></script><script src="profilmanagement-photo.js"></script></body>')
             body=page.encode('utf-8'); self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body); return
         if not self.api(): super().do_GET()
     def do_POST(self): self.api()
@@ -186,6 +202,8 @@ class Handler(SimpleHTTPRequestHandler):
         except json.JSONDecodeError: raise ValueError('Ungültige JSON-Anfrage.')
     def sendjson(self,status,data):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body); return True
+    def sendimage(self,path):
+        body=Path(path).read_bytes(); self.send_response(200); self.send_header('Content-Type','image/jpeg'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body); return True
     def sendfile(self,path,name):
         body=Path(path).read_bytes(); self.send_response(200); self.send_header('Content-Type','application/pdf'); self.send_header('Content-Disposition',f'attachment; filename="{safe(name)}"'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body); return True
     def api(self):
@@ -203,6 +221,13 @@ class Handler(SimpleHTTPRequestHandler):
                     if self.command=='GET': return self.sendjson(200,store.get(pid))
                     if self.command=='PUT': return self.sendjson(200,store.update(pid,self.body(),actor))
                     if self.command=='DELETE': store.archive(pid,actor); return self.sendjson(200,{'archiviert':True,'profilId':pid})
+                if len(parts)==4 and parts[3]=='photo':
+                    photo_path=store.photo_path(pid)
+                    if self.command=='GET':
+                        if not photo_path.exists(): raise FileNotFoundError('Profilfoto nicht gefunden')
+                        return self.sendimage(photo_path)
+                    if self.command=='POST': return self.sendjson(200,store.save_photo(pid,self.body().get('dataUrl'),actor))
+                    if self.command=='DELETE': return self.sendjson(200,store.remove_photo(pid,actor))
                 if len(parts)==4 and parts[3]=='variants':
                     if self.command=='GET': return self.sendjson(200,{'varianten':store.variants(pid)})
                     if self.command=='POST': return self.sendjson(201,store.create_variant(pid,self.body(),actor))
@@ -225,7 +250,7 @@ class Handler(SimpleHTTPRequestHandler):
                     output=store.d/safe(pid)/filename
                     logo_path=next((candidate for candidate in (ROOT/'logo_werktrifft.png', ROOT/'assets'/'logo_werktrifft.png', ROOT.parent/'WT-Dashboard-Module'/'logo_werktrifft.png') if candidate.exists()), None)
                     try:
-                        export_pdf(profile,variant,output,logo_path=logo_path)
+                        export_pdf(profile,variant,output,logo_path=logo_path,photo_path=store.photo_path(pid))
                     except PDFExportUnavailable as error:
                         raise ValueError(str(error)) from error
                     return self.sendfile(output,filename)
