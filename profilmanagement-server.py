@@ -33,13 +33,13 @@ class Store:
   if create:x.mkdir(parents=True,exist_ok=True)
   return x
  def vp(self,pid,vid):return self.vf(pid)/f'{safe(vid)}.json'
- def normalize(self,k,items):
-  out=[]
+ def norm(self,k,items):
+  r=[]
   for x in items if isinstance(items,list)else[]:
    if not isinstance(x,dict):continue
-   if k=='projekte':out.append(project(x));continue
-   y=cp(x);y['id']=str(y.get('id')or uuid.uuid4().hex);out.append(y)
-  return out
+   if k=='projekte':r.append(project(x));continue
+   y=cp(x);y['id']=str(y.get('id')or uuid.uuid4().hex);r.append(y)
+  return r
  def content(self,p):return{k:cp(p.get(k,{}if k=='kurzprofil'else[]))for k in FIELDS}
  def hints(self,p):
   r=[];person=p.get('person',{})
@@ -51,7 +51,7 @@ class Store:
   x=self.pp(pid)
   if not x.exists():raise FileNotFoundError('Profil nicht gefunden')
   p=self.read(x);p.setdefault('revision',1)
-  for k in LISTS:p[k]=self.normalize(k,p.get(k,[]))
+  for k in LISTS:p[k]=self.norm(k,p.get(k,[]))
   p['hinweise']=self.hints(p);return p
  def list(self):
   r=[]
@@ -79,7 +79,7 @@ class Store:
   v.setdefault('inhalte',{});v.setdefault('basisSnapshot',cp(v['inhalte']))
   for k in FIELDS:
    v['inhalte'].setdefault(k,{}if k=='kurzprofil'else[])
-   if k!='kurzprofil':v['inhalte'][k]=self.normalize(k,v['inhalte'][k])
+   if k!='kurzprofil':v['inhalte'][k]=self.norm(k,v['inhalte'][k])
   v.setdefault('auswahl',{})
   for k in LISTS:
    old={x.get('id'):x for x in v['auswahl'].get(k,[])if x.get('id')};v['auswahl'][k]=[{'id':x['id'],'sichtbar':bool(old.get(x['id'],{}).get('sichtbar',True)),'reihenfolge':old.get(x['id'],{}).get('reihenfolge',i+1)}for i,x in enumerate(v['inhalte'][k])]
@@ -97,7 +97,7 @@ class Store:
   p=self.get(pid);before=self.content(p)
   for k in('status','person','kurzprofil')+LISTS:
    if k in d:p[k]=d[k]
-  for k in LISTS:p[k]=self.normalize(k,p.get(k,[]))
+  for k in LISTS:p[k]=self.norm(k,p.get(k,[]))
   p['projekte']=[x for x in p['projekte']if any((x['titel'].strip(),x['startMonat'],x['endeMonat'],x['laufend'],x['rolle'].strip(),x['beschreibung'].strip(),x['aufgaben'].strip()))]
   self.validate_projects(p['projekte'])
   if p.get('status')not in('Entwurf','Aktuell'):raise ValueError('Ungültiger Profilstatus.')
@@ -135,6 +135,8 @@ class Store:
 class Handler(SimpleHTTPRequestHandler):
  def end_headers(self):self.send_header('Cache-Control','no-store');super().end_headers()
  def do_GET(self):
+  if self.path.split('?',1)[0].endswith('profilmanagement.html'):
+   page=(ROOT/'profilmanagement.html').read_text(encoding='utf-8').replace('</body>','<script src="profilmanagement-enhancements.js"></script></body>');body=page.encode('utf-8');self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body);return
   if not self.api():super().do_GET()
  def do_POST(self):self.api()
  def do_PUT(self):self.api()
