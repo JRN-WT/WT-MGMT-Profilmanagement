@@ -36,8 +36,8 @@
   }
   window.showPreview = function () {
     try {
-      const panel = ensureRightPanel();
-      const workspace = q('#variant-workspace'); workspace.classList.add('preview-open');
+      ensureRightPanel();
+      q('#variant-workspace').classList.add('preview-open');
       const person = profile.person || {};
       const name = q('#vn').value.trim() || 'Unbenannte Variante';
       const role = q('#vr').value.trim() || person.rolle || 'Rolle noch ergänzen';
@@ -53,18 +53,13 @@
     } catch (error) { say(error.message); }
   };
 
-  // Die Vorschau ist in der Variantenbearbeitung ein fester Arbeitsbereich.
-  // Nach jedem Aufbau wird sie sofort gerendert und der frühere Aktionsbutton entfernt.
-  const originalVariants = window.variants;
-  window.variants = async function (edit = false) {
-    const result = await originalVariants(edit);
-    if (edit && window.variant) {
-      requestAnimationFrame(() => {
-        const previewButton = q('.save-bar .button.secondary[onclick*="showPreview"]');
-        if (previewButton) previewButton.remove();
-        window.showPreview();
-      });
-    }
-    return result;
-  };
+  // Die Hauptoberfläche baut den Varianteneditor dynamisch auf. Diese Überwachung
+  // macht die Vorschau deshalb zu einem festen Teil des Editors statt zu einer Aktion.
+  const variantsHost = q('#variants');
+  new MutationObserver(() => {
+    const previewButton = variantsHost.querySelector('.save-bar .button.secondary[onclick*="showPreview"]');
+    if (!previewButton || !q('#vn') || !q('#variant-preview')) return;
+    previewButton.remove();
+    window.showPreview();
+  }).observe(variantsHost, { childList: true, subtree: true });
 })();
