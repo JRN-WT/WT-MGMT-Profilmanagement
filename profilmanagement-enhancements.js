@@ -1,7 +1,7 @@
 /* Rechte, rein browserbasierte Variantenvorschau. Keine Zusatzbibliothek. */
 (() => {
   const css = `
-  .variant-workspace{display:block}.variant-editor{min-width:0}.preview-panel{display:none}.variant-workspace.preview-open{display:grid;grid-template-columns:minmax(0,1fr) minmax(350px,420px);gap:20px;align-items:start}.variant-workspace.preview-open .preview-panel{display:block;position:sticky;top:18px}.preview{margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}.preview-person{padding:18px 20px;background:var(--blue);color:#fff;border-bottom:3px solid var(--orange)}.preview-person h2{font-size:22px;margin:0 0 5px}.preview-role,.preview-contact{color:#dce7f3;line-height:1.45}.preview-contact{font-size:12px;margin-top:8px}.preview-head{padding:16px;background:#f7f2e8;border-bottom:1px solid var(--line)}.preview-head h2{margin:0 0 4px}.preview-body{padding:20px}.preview-section{padding:13px 0;border-bottom:1px solid #e7e1d6}.preview-section:last-child{border-bottom:0}.preview-section h3{margin:0 0 8px}.preview-project{padding:12px 0;border-top:1px solid #ece6db}.preview-project:first-of-type{border-top:0}.preview-project b{color:var(--blue)}.preview-note{font-size:12px;color:var(--muted);line-height:1.45;margin-top:10px}@media(max-width:1050px){.variant-workspace.preview-open{grid-template-columns:1fr}.variant-workspace.preview-open .preview-panel{position:static}}`;
+  .variant-workspace{display:block}.variant-editor{min-width:0}.preview-panel{display:none}.variant-workspace.preview-open{display:grid;grid-template-columns:minmax(0,1fr) minmax(350px,420px);gap:20px;align-items:start}.variant-workspace.preview-open .preview-panel{display:block;position:sticky;top:18px}.preview{margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}.preview-person{padding:18px 20px;background:var(--blue);color:#fff;border-bottom:3px solid var(--orange)}.preview-person h2{font-size:22px;margin:0 0 5px}.preview-role,.preview-contact{color:#dce7f3;line-height:1.45}.preview-contact{font-size:12px;margin-top:8px}.preview-head{padding:16px;background:#f7f2e8;border-bottom:1px solid var(--line)}.preview-head h2{margin:0 0 4px}.preview-body{padding:20px}.preview-section{padding:13px 0;border-bottom:1px solid #e7e1d6}.preview-section:last-child{border-bottom:0}.preview-section h3{margin:0 0 8px}.preview-project{padding:12px 0;border-top:1px solid #ece6db}.preview-project:first-of-type{border-top:0}.preview-project b{color:var(--blue)}.preview-note{font-size:12px;color:var(--muted);line-height:1.45;margin-top:10px}.save-bar .button.secondary[onclick*="showPreview"]{display:none!important}@media(max-width:1050px){.variant-workspace.preview-open{grid-template-columns:1fr}.variant-workspace.preview-open .preview-panel{position:static}}`;
   document.head.insertAdjacentHTML('beforeend', `<style>${css}</style>`);
 
   function selectedRows(key) {
@@ -18,7 +18,7 @@
     const host = q('#variants');
     const start = host.querySelector('.section');
     const end = host.querySelector('.save-bar');
-    if (!preview || !start || !end) throw Error('Die Variantenansicht ist noch nicht vollständig aufgebaut. Bitte die Variante einmal neu öffnen.');
+    if (!preview || !start || !end) return null;
     const workspace = document.createElement('div');
     workspace.id = 'variant-workspace'; workspace.className = 'variant-workspace';
     const editor = document.createElement('div'); editor.className = 'variant-editor';
@@ -36,7 +36,8 @@
   }
   window.showPreview = function () {
     try {
-      ensureRightPanel();
+      const panel = ensureRightPanel();
+      if (!panel) return;
       q('#variant-workspace').classList.add('preview-open');
       const person = profile.person || {};
       const name = q('#vn').value.trim() || 'Unbenannte Variante';
@@ -53,13 +54,24 @@
     } catch (error) { say(error.message); }
   };
 
-  // Die Hauptoberfläche baut den Varianteneditor dynamisch auf. Diese Überwachung
-  // macht die Vorschau deshalb zu einem festen Teil des Editors statt zu einer Aktion.
+  // Beim Öffnen einer Variante sofort die Vorschau erzeugen. Der frühere Button
+  // wird zusätzlich direkt entfernt, nicht nur verborgen.
   const variantsHost = q('#variants');
-  new MutationObserver(() => {
+  const activatePreview = () => {
     const previewButton = variantsHost.querySelector('.save-bar .button.secondary[onclick*="showPreview"]');
     if (!previewButton || !q('#vn') || !q('#variant-preview')) return;
     previewButton.remove();
     window.showPreview();
-  }).observe(variantsHost, { childList: true, subtree: true });
+  };
+  new MutationObserver(activatePreview).observe(variantsHost, { childList: true, subtree: true });
+  const originalOpenVariant = window.openVariant;
+  window.openVariant = async function (id) {
+    await originalOpenVariant(id);
+    activatePreview();
+  };
+  const originalNewVariant = window.newVariant;
+  window.newVariant = async function () {
+    await originalNewVariant();
+    activatePreview();
+  };
 })();
