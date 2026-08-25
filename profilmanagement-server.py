@@ -190,8 +190,11 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path.split('?',1)[0].endswith('profilmanagement.html'):
             page=(ROOT/'profilmanagement.html').read_text(encoding='utf-8')
-            if 'profilmanagement-enhancements.js' not in page:
-                page=page.replace('</body>','<script src="profilmanagement-enhancements.js"></script><script src="profilmanagement-photo.js"></script></body>')
+            scripts = '<script src="profilmanagement-enhancements.js"></script><script src="profilmanagement-photo.js"></script>'
+            # Immer beide Erweiterungen liefern: Die Basisdatei bindet die Vorschau ein,
+            # das Fotomodul ergänzt darauf aufbauend die Funktion „Foto auswählen“.
+            if 'profilmanagement-photo.js' not in page:
+                page=page.replace('</body>', scripts+'</body>')
             body=page.encode('utf-8'); self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body); return
         if not self.api(): super().do_GET()
     def do_POST(self): self.api()
