@@ -1,9 +1,9 @@
-#!/usr/bin/env python3
 """Lokaler JSON-Server fuer WERK TRIFFT Profilmanagement. Nur Standardbibliothek."""
 import argparse, copy, json, re, shutil, uuid
 try:
-    from profilmanagement_pdf import export_pdf
+    from profilmanagement_pdf_playwright import PDFExportUnavailable, export_pdf
 except ModuleNotFoundError:
+    PDFExportUnavailable = RuntimeError
     export_pdf = None
 from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -16,7 +16,7 @@ FIELDS = ('kurzprofil',) + LISTS
 
 def now(): return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
 def cp(value): return copy.deepcopy(value)
-def safe(value, fallback='datei'): return re.sub(r'[^A-Za-z0-9._ -]+', '-', str(value)).strip(' .-') or fallback
+def safe(value, fallback='datei'): return re.sub(r'[^A-Za-z0-9ÄÖÜäöüß._ -]+', '-', str(value)).strip(' .-') or fallback
 def slug(first, last): return re.sub(r'[^a-z0-9]+', '-', (last+'-'+first).lower()).strip('-') or uuid.uuid4().hex[:8]
 def pick(items, visible=True): return [{'id': x['id'], 'sichtbar': visible, 'reihenfolge': index+1} for index, x in enumerate(items)]
 
@@ -173,7 +173,9 @@ class Handler(SimpleHTTPRequestHandler):
     def end_headers(self): self.send_header('Cache-Control','no-store'); super().end_headers()
     def do_GET(self):
         if self.path.split('?',1)[0].endswith('profilmanagement.html'):
-            page=(ROOT/'profilmanagement.html').read_text(encoding='utf-8').replace('</body>','<script src="profilmanagement-enhancements.js"></script></body>')
+            page=(ROOT/'profilmanagement.html').read_text(encoding='utf-8')
+            if 'profilmanagement-enhancements.js' not in page:
+                page=page.replace('</body>','<script src="profilmanagement-enhancements.js"></script></body>')
             body=page.encode('utf-8'); self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body); return
         if not self.api(): super().do_GET()
     def do_POST(self): self.api()
@@ -208,9 +210,25 @@ class Handler(SimpleHTTPRequestHandler):
                     if self.command=='GET': return self.sendjson(200,store.variant(pid,parts[4]))
                     if self.command=='PUT': return self.sendjson(200,store.update_variant(pid,parts[4],self.body(),actor))
                     if self.command=='DELETE': return self.sendjson(200,store.archive_variant(pid,parts[4],actor))
-                if len(parts)==6 and parts[3]=='variants' and parts[5]=='pdf' and self.command=='GET':
-                    if export_pdf is None: raise ValueError('PDF-Export ist noch nicht eingerichtet: Die erforderliche Zusatzbibliothek fehlt. Das Profilmanagement selbst läuft weiterhin ohne den PDF-Export.')
-                    profile=store.get(pid); variant=store.variant(pid,parts[4]); name=safe((variant.get('name') or 'profilvariante')+'.pdf'); output=store.d/safe(pid)/name; export_pdf(profile,variant,output); return self.sendfile(output,name)
+                if len(parts)==6 and parts[3]=='variants' and parts[5]=='pdf' and self.command in ('GET','POST'):
+                    if export_pdf is None: raise ValueError('PDF-Export ist nicht verfügbar: Die Datei „profilmanagement_pdf_playwright.py“ fehlt. Das Profilmanagement selbst läuft weiterhin ohne den PDF-Export.')
+                    profile=store.get(pid); variant=store.variant(pid,parts[4])
+                    if self.command=='POST':
+                        current=self.body()
+                        for key in ('name','kunde','anfrage','zielrolle','notiz','fotoSichtbar'):
+                            if key in current: variant[key]=current[key]
+                        if 'auswahl' in current: variant['auswahl']=cp(current['auswahl'])
+                        # Exportiert genau die aktive Vorschau, ohne Variante oder Status zu speichern.
+                        variant['inhalte']=store.content(profile)
+                        store.normvar(variant)
+                    name=safe(f"{datetime.now().strftime('%Y-%m-%d')}_WT-Profil_{variant.get('name') or 'profilvariante'}.pdf")
+                    output=store.d/safe(pid)/name
+                    logo_path=next((candidate for candidate in (ROOT/'logo_werktrifft.png', ROOT/'assets'/'logo_werktrifft.png', ROOT.parent/'WT-Dashboard-Module'/'logo_werktrifft.png') if candidate.exists()), None)
+                    try:
+                        export_pdf(profile,variant,output,logo_path=logo_path)
+                    except PDFExportUnavailable as error:
+                        raise ValueError(str(error)) from error
+                    return self.sendfile(output,name)
                 if len(parts)==6 and parts[3]=='variants' and parts[5]=='basis-aenderungen':
                     if self.command=='GET': return self.sendjson(200,store.changes(pid,parts[4]))
                     if self.command=='POST': return self.sendjson(200,store.review(pid,parts[4],actor))
