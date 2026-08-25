@@ -1,0 +1,16 @@
+# Produktive Profilakten sind personenbezogene Arbeitsdaten.
+# Nextcloud synchronisiert sie; GitHub versioniert sie ausdrücklich nicht.
+daten/**
+
+# Platzhalter-Dateien halten nur die Verzeichnisstruktur im Repository.
+!daten/.gitkeep
+!daten/profile/.gitkeep
+!daten/varianten/.gitkeep
+!daten/dokumente/.gitkeep
+!daten/archiv/.gitkeep
+
+# Lokale Python- und Betriebssystemdateien
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
