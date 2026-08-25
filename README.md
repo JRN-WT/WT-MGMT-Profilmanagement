@@ -1,52 +1,56 @@
 # WERK TRIFFT – Profilmanagement
 
-Lokaler Kern für die Verwaltung von Beraterprofilen und kundenbezogenen Profilvarianten.
+Eigenständiger, lokal betreibbarer Kern für interne Beraterprofile und kundenspezifische Profilvarianten.
 
-## Eine klare Ablage, keine Doppelung
+## Arbeitsprinzip
 
-Der Projektordner wird in einem **Nextcloud-synchronisierten Bereich** lokal geklont.
+- Das **Basisprofil** ist die vollständige interne Quelle.
+- Eine **Variante** ist eine eigenständig bearbeitbare Kundenfassung. Sie kann Inhalte anders formulieren, ergänzen, ausblenden und priorisieren, ohne das Basisprofil zu verändern.
+- Jede fachliche Änderung am Basisprofil erhöht dessen Revision und markiert bestehende Varianten mit **„Basisprofil aktualisiert“**.
+- In der Variante werden Änderungen über **„Basisänderungen prüfen“** bewusst übernommen oder als eigene Kundenfassung beibehalten. Erst danach kann die Variante wieder freigegeben werden.
 
-- **GitHub** enthält ausschließlich Programmcode und technische Dokumentation.
-- **Nextcloud** synchronisiert den gesamten lokalen Projektordner.
-- `daten/` ist der **einzige** lokale Speicherort für produktive Profilakten.
-- `.gitignore` verhindert, dass JSON-Profilakten und Originaldokumente nach GitHub gelangen.
+## Lokale Struktur
 
 ```text
-WT-MGMT-Profilmanagement/
+profilmanagement/
 ├── profilmanagement.html
 ├── profilmanagement-server.py
-├── README.md
-├── .gitignore
-└── daten/
-    ├── profile/                   # JSON-Basisprofile
-    ├── varianten/<profil-id>/     # JSON-Profilvarianten
-    ├── dokumente/<profil-id>/     # Originale, Eingänge und Exporte
-    └── archiv/                    # archivierte Profilakten
+├── daten/
+│   ├── profile/        # lokale Basisprofile als JSON
+│   ├── varianten/      # lokale Varianten als JSON
+│   ├── dokumente/      # künftige Originale und Exporte
+│   └── archiv/         # archivierte Profilakten
+└── README.md
 ```
 
-## Lokale Einrichtung
+`daten/` enthält personenbezogene Profilakten und bleibt lokal beziehungsweise im Nextcloud-synchronisierten Projektordner. Es wird nicht nach GitHub versioniert.
 
-1. Repository mit GitHub Desktop in den vorgesehenen Nextcloud-Projektordner klonen.
-2. Den Branch `feature/json-profilpersistenz-clean` auswählen.
-3. Server im Repository-Ordner starten:
+## Starten
 
-   **macOS**
-   ```bash
-   python3 profilmanagement-server.py
-   ```
+Im Projektordner ausführen:
 
-   **Windows**
-   ```powershell
-   py profilmanagement-server.py
-   ```
+```bash
+python profilmanagement-server.py
+```
 
-4. Browser öffnen:
-   ```text
-   http://127.0.0.1:8081/profilmanagement.html
-   ```
+Danach im Browser öffnen:
 
-Der Server erstellt die Unterordner unter `daten/` beim ersten Start automatisch.
+```text
+http://127.0.0.1:8081/profilmanagement.html
+```
 
-## Datenschutz
+Es sind keine externen Python-Pakete erforderlich.
 
-Die echten Profilakten liegen ausschließlich lokal in `daten/` und werden über Nextcloud synchronisiert. Sie sind ausdrücklich kein Bestandteil des GitHub-Repositories.
+## Testablauf für Varianten
+
+1. Profil öffnen und ein Basisprofil mit mindestens einer Kompetenz speichern.
+2. Eine Variante anlegen, Variantenname und Zielrolle ergänzen und als Entwurf speichern.
+3. In der Variante Einträge ausblenden, umsortieren, umformulieren oder ergänzen.
+4. Im Basisprofil eine Kompetenz oder das Kurzprofil ändern und erneut speichern.
+5. Variante öffnen: Status **„Basisprofil aktualisiert“** und Aktion **„Basisänderungen prüfen“** erscheinen.
+6. Jeden Unterschied bewusst übernehmen oder die eigene Variantenfassung beibehalten.
+7. Prüfung abschließen und Variante freigeben.
+
+## Nächster Ausbau
+
+Der nächste große Baustein ist die Dokumenten- und Exportkette: Originaldokumente zuordnen, Dateien lokal ablegen und aus freigegebenen Varianten kundentaugliche Word-/PDF- und ATS-Fassungen erzeugen.
