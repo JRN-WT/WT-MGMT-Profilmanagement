@@ -74,11 +74,29 @@ class Store:
   p.setdefault('historie',[]).append({'zeitpunkt':t,'aktion':'Basisprofil gespeichert','von':actor,'details':detail});self.write(self.pp(pid),p)
   if changed:self.mark(pid,p['revision'],t,actor)
   return self.get(pid)
- def variants(self,pid):self.get(pid);return sorted((self.read(x) for x in self.vf(pid).glob('*.json')),key=lambda x:x.get('aktualisiertAm',''),reverse=True)
+ def migrate_legacy_variant(self,pid,v):
+  if v.get('inhalte') is not None:return False
+  p=self.get(pid);c=self.content(p);old=v.get('auswahl',{})
+  v['schemaVersion']='2.0';v['inhalte']=c;v['basisSnapshot']=cp(c);v['basisRevisionGeprueft']=p.get('revision',1);v['basisRevisionAktuell']=p.get('revision',1)
+  v['auswahl']={}
+  for k in LISTS:
+   prior={x.get('id'):x for x in old.get(k,[]) if x.get('id')}
+   v['auswahl'][k]=[{'id':x['id'],'sichtbar':bool(prior.get(x['id'],{}).get('sichtbar',True)),'reihenfolge':i+1} for i,x in enumerate(c[k])]
+  v.setdefault('historie',[]).append({'zeitpunkt':now(),'aktion':'Variante technisch aktualisiert','von':'System','details':'Bestehende Variante mit dem aktuellen Basisprofilbestand ergänzt. Inhalte bitte prüfen.'})
+  return True
+ def variants(self,pid):
+  self.get(pid);out=[]
+  for x in self.vf(pid).glob('*.json'):
+   v=self.read(x)
+   if self.migrate_legacy_variant(pid,v):self.write(x,v)
+   out.append(v)
+  return sorted(out,key=lambda x:x.get('aktualisiertAm',''),reverse=True)
  def variant(self,pid,vid):
   x=self.vp(pid,vid)
   if not x.exists():raise FileNotFoundError('Variante nicht gefunden')
-  return self.read(x)
+  v=self.read(x)
+  if self.migrate_legacy_variant(pid,v):self.write(x,v)
+  return v
  def create_variant(self,pid,data,actor):
   p=self.get(pid);t=now();vid='variante-'+uuid.uuid4().hex[:10];c=self.content(p)
   v={'schemaVersion':'2.0','id':vid,'profilId':pid,'name':str(data.get('name','Neue Profilvariante')).strip() or 'Neue Profilvariante','status':'Entwurf','kunde':str(data.get('kunde','')),'anfrage':str(data.get('anfrage','')),'zielrolle':str(data.get('zielrolle',p.get('person',{}).get('rolle',''))),'notiz':str(data.get('notiz','')),'fotoSichtbar':bool(data.get('fotoSichtbar',False)),'inhalte':c,'basisSnapshot':cp(c),'basisRevisionGeprueft':p.get('revision',1),'basisRevisionAktuell':p.get('revision',1),'pruefungErforderlich':False,'auswahl':{k:pick(c[k]) for k in LISTS},'erstelltAm':t,'erstelltVon':actor,'aktualisiertAm':t,'aktualisiertVon':actor,'historie':[{'zeitpunkt':t,'aktion':'Variante angelegt','von':actor,'details':f'Auf Basisprofil-Revision {p.get("revision",1)} angelegt.'}]};self.write(self.vp(pid,vid),v);return v
