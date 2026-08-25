@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
+from profilmanagement_pdf import export_pdf
 ROOT=Path(__file__).resolve().parent
 LISTS=('kompetenzen','branchen','projekte','qualifikationen','sprachen')
 FIELDS=('kurzprofil',)+LISTS
@@ -32,13 +33,13 @@ class Store:
   if create:x.mkdir(parents=True,exist_ok=True)
   return x
  def vp(self,pid,vid):return self.vf(pid)/f'{safe(vid)}.json'
- def norm(self,k,items):
-  r=[]
+ def normalize(self,k,items):
+  out=[]
   for x in items if isinstance(items,list)else[]:
    if not isinstance(x,dict):continue
-   if k=='projekte':r.append(project(x));continue
-   y=cp(x);y['id']=str(y.get('id')or uuid.uuid4().hex);r.append(y)
-  return r
+   if k=='projekte':out.append(project(x));continue
+   y=cp(x);y['id']=str(y.get('id')or uuid.uuid4().hex);out.append(y)
+  return out
  def content(self,p):return{k:cp(p.get(k,{}if k=='kurzprofil'else[]))for k in FIELDS}
  def hints(self,p):
   r=[];person=p.get('person',{})
@@ -50,7 +51,7 @@ class Store:
   x=self.pp(pid)
   if not x.exists():raise FileNotFoundError('Profil nicht gefunden')
   p=self.read(x);p.setdefault('revision',1)
-  for k in LISTS:p[k]=self.norm(k,p.get(k,[]))
+  for k in LISTS:p[k]=self.normalize(k,p.get(k,[]))
   p['hinweise']=self.hints(p);return p
  def list(self):
   r=[]
@@ -78,7 +79,7 @@ class Store:
   v.setdefault('inhalte',{});v.setdefault('basisSnapshot',cp(v['inhalte']))
   for k in FIELDS:
    v['inhalte'].setdefault(k,{}if k=='kurzprofil'else[])
-   if k!='kurzprofil':v['inhalte'][k]=self.norm(k,v['inhalte'][k])
+   if k!='kurzprofil':v['inhalte'][k]=self.normalize(k,v['inhalte'][k])
   v.setdefault('auswahl',{})
   for k in LISTS:
    old={x.get('id'):x for x in v['auswahl'].get(k,[])if x.get('id')};v['auswahl'][k]=[{'id':x['id'],'sichtbar':bool(old.get(x['id'],{}).get('sichtbar',True)),'reihenfolge':old.get(x['id'],{}).get('reihenfolge',i+1)}for i,x in enumerate(v['inhalte'][k])]
@@ -96,7 +97,7 @@ class Store:
   p=self.get(pid);before=self.content(p)
   for k in('status','person','kurzprofil')+LISTS:
    if k in d:p[k]=d[k]
-  for k in LISTS:p[k]=self.norm(k,p.get(k,[]))
+  for k in LISTS:p[k]=self.normalize(k,p.get(k,[]))
   p['projekte']=[x for x in p['projekte']if any((x['titel'].strip(),x['startMonat'],x['endeMonat'],x['laufend'],x['rolle'].strip(),x['beschreibung'].strip(),x['aufgaben'].strip()))]
   self.validate_projects(p['projekte'])
   if p.get('status')not in('Entwurf','Aktuell'):raise ValueError('Ungültiger Profilstatus.')
@@ -129,6 +130,8 @@ class Store:
   for source,name in((self.vf(pid,False),'varianten'),(self.d/safe(pid),'dokumente')):
    if source.exists():shutil.move(str(source),str(target/name))
   self.write(target/'archiv-info.json',{'profilId':p['id'],'archiviertAm':now(),'archiviertVon':actor})
+ def archive_variant(self,pid,vid,actor):
+  v=self.variant(pid,vid);source=self.vp(pid,vid);target=self.a/safe(pid)/'varianten';target.mkdir(parents=True,exist_ok=True);stamp=datetime.now().strftime('%Y%m%d-%H%M%S');shutil.move(str(source),str(target/f'{stamp}-{safe(vid)}.json'));self.write(target/f'{stamp}-{safe(vid)}.archiv-info.json',{'profilId':pid,'variantenId':vid,'variantenName':v.get('name',''),'archiviertAm':now(),'archiviertVon':actor});return{'archiviert':True,'profilId':pid,'variantenId':vid}
 class Handler(SimpleHTTPRequestHandler):
  def end_headers(self):self.send_header('Cache-Control','no-store');super().end_headers()
  def do_GET(self):
@@ -141,6 +144,8 @@ class Handler(SimpleHTTPRequestHandler):
   except json.JSONDecodeError:raise ValueError('Ungültige JSON-Anfrage.')
  def sendjson(self,status,d):
   b=json.dumps(d,ensure_ascii=False).encode();self.send_response(status);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b);return True
+ def sendfile(self,path,name):
+  b=Path(path).read_bytes();self.send_response(200);self.send_header('Content-Type','application/pdf');self.send_header('Content-Disposition',f'attachment; filename="{safe(name)}"');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b);return True
  def api(self):
   path=unquote(urlparse(self.path).path).rstrip('/')or'/'
   if not path.startswith('/api'):return False
@@ -162,6 +167,9 @@ class Handler(SimpleHTTPRequestHandler):
     if len(z)==5 and z[3]=='variants':
      if self.command=='GET':return self.sendjson(200,s.variant(pid,z[4]))
      if self.command=='PUT':return self.sendjson(200,s.update_variant(pid,z[4],self.body(),actor))
+     if self.command=='DELETE':return self.sendjson(200,s.archive_variant(pid,z[4],actor))
+    if len(z)==6 and z[3]=='variants'and z[5]=='pdf'and self.command=='GET':
+     p=s.get(pid);v=s.variant(pid,z[4]);name=safe((v.get('name')or'profilvariante')+'.pdf');output=s.d/safe(pid)/name;export_pdf(p,v,output);return self.sendfile(output,name)
     if len(z)==6 and z[3]=='variants'and z[5]=='basis-aenderungen'and self.command=='POST':return self.sendjson(200,s.review(pid,z[4],actor))
    return self.sendjson(404,{'fehler':'API-Endpunkt nicht gefunden.'})
   except FileNotFoundError as e:return self.sendjson(404,{'fehler':str(e)})
