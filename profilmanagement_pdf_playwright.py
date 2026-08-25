@@ -81,7 +81,8 @@ def _project_period(project: dict[str, Any]) -> str:
 def profile_for_pdf(profile: dict[str, Any], variant: dict[str, Any]) -> dict[str, Any]:
     """Uebersetzt das interne JSON-Modell in eine reine Exportansicht."""
     person = profile.get("person", {}) if isinstance(profile.get("person"), dict) else {}
-    short = profile.get("kurzprofil", {}) if isinstance(profile.get("kurzprofil"), dict) else {}
+    contents = variant.get("inhalte") if isinstance(variant.get("inhalte"), dict) else profile
+    short = contents.get("kurzprofil", {}) if isinstance(contents.get("kurzprofil"), dict) else {}
     name = " ".join(part for part in (_text(person.get("titel")), _text(person.get("vorname")), _text(person.get("nachname"))) if part)
     role = _text(variant.get("zielrolle")) or _text(person.get("rolle"))
     bio = "\n\n".join(part for part in (_text(short.get("positionierung")), _text(short.get("zusammenfassung"))) if part)
@@ -155,6 +156,7 @@ def build_profile_html(profile: dict[str, Any], variant: dict[str, Any], logo_pa
     industries = _chips(data["branchen"], "branchen")
     qualifications = _chips(data["qualifikationen"], "qualifikationen")
     languages = _chips(data["sprachen"], "sprachen")
+    profile_text = _text(data["kurzprofil"])
     generated = datetime.now().strftime("%d.%m.%Y")
     return f'''<!doctype html><html lang="de"><head><meta charset="utf-8"><title>{_escape(data['name'])}</title>
 <style>
@@ -176,7 +178,7 @@ h1 {{ color: {BLUE}; margin: 0 0 1mm; font-size: 20pt; line-height: 1.12; }} .ro
 .footer {{ position: fixed; left: 16mm; right: 16mm; bottom: 7mm; display: flex; justify-content: space-between; border-top: .5pt solid {LINE}; padding-top: 2mm; color: {MUTED}; font-size: 7pt; }}
 </style></head><body><main class="page"><header class="header">{logo}<div class="header-note"><strong>WERK TRIFFT</strong><br>Beraterprofil<br>Erstellt am {generated}</div></header>
 <section class="profile"><h1>{_escape(data['name'])}</h1>{f'<div class="role">{_escape(data["rolle"])}</div>' if data['rolle'] else ''}{f'<div class="badge">VARIANTE · {_escape(data["variante"])}</div>' if data['variante'] else ''}</section>
-{section('Kurzprofil', f'<div class="bio">{_escape(data["kurzprofil"])}</div>')}
+{section('Kurzprofil', f'<div class="bio">{_escape(profile_text)}</div>') if profile_text else ''}
 {section('Kompetenzen', competence)}{section('Branchen', industries)}{section('Qualifikationen', qualifications)}{section('Sprachen', languages)}{section('Projekterfahrung', _projects(data['projekte']), 'projects')}
 <footer class="footer"><span>WERK TRIFFT · Vertraulich</span><span>{_escape(data['name'])}</span></footer></main></body></html>'''
 
